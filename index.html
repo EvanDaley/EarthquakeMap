@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Earth Quake Tracker</title>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.0/jquery.min.js"></script>
+	
+	
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map {
+        height: 100%;
+      }
+	  
+	#floating-panel {
+	  border-radius: 3px;
+	  position: absolute;
+	  top: 75px;
+	  left: 10px;
+	  z-index: 5;
+	  background-color: #fff;
+	  padding: 5px;
+	  box-shadow: 3px 3px 5px #888888;
+	  border: 1px solid #999;
+	  font-family: 'Roboto','sans-serif';
+	  line-height: 30px;
+	  padding-left: 10px;
+	}
+	
+	label_med 
+	{ 
+		width: 128px; 
+		float: left;
+	}
+	
+	label_small 
+	{ 
+		width: 60px; 
+		float: left;
+	}
+	
+    </style>
+	
+  </head>
+  <body>
+    <div id="floating-panel">
+		<input id="address"type="textbox" value="Baguio City, Philippines" style="width: 227px"><input id="submit" type="button" value="Geocode"><br>
+		<label_med>Latitude </label_med><input type="text" id="lat" required><br>
+		<label_med>Longitude </label_med><input type="text" id="lon" required><br>
+		
+		
+		<label_med>Start Date 	&nbsp;</label_med><input type="date" id="startDate" value="1990-07-16" style="width: 167px" required><br>
+		<label_med>End Date &nbsp; </label_med><input type="date" id="endDate" class="input" value="1990-07-18" style="width: 167px" required><br>
+		
+		
+		<label_med>Anim Speed </label_med><input type="range" id="speed" min="1" max="5" step="1" style="width: 110px"><label_small id="lblSpeed">Medium&nbsp;</label_small><br>
+		<label_med>Radius (km) </label_med><input type="text" id="radius" value="250" required><br>
+		<input type="checkbox" id="showMarkers" checked="checked">Show Markers <br>
+		<label_med>above Magnitude</label_med><input type="text" id="markersAbove"  value="6"><br>
+		<input type="checkbox" id="showShapes" checked="checked">Show Circles <br>
+		<label_med>above Magnitude</label_med><input type="text" id="shapesAbove" value="3"><br>
+		
+		<input type="button" id="getQuakes" value="Draw Quakes"><br>	
+		
+		<label_med>Animation Time</label_med><label id="currentTime">1970-0-07T00:00:00</label>
+
+    </div>
+	
+    <div id="map"></div>
+	
+    <script>
+		// Created by Evan Daley - 3/3/2016
+	
+		// -----------------------------------------
+		// --------------- MAP STUFF ---------------
+		// -----------------------------------------
+		
+		var map;
+		var markers = [];
+		var circles = [];
+		var timeouts = [];
+		var geocoder;
+		var counter;
+		var animSpeed = 3;
+	
+		function initMap() {
+		  
+			// create a map
+			map = new google.maps.Map(document.getElementById('map'), {
+				zoom: 8,
+				center: {lat: 16.0059867, lng: 120.23973360000002}
+			});
+			geocoder = new google.maps.Geocoder();
+		  
+			// listen for "geocode" button
+			document.getElementById('submit').addEventListener('click', function() {
+				var address = document.getElementById('address').value;
+				geocodeAddress(geocoder, address, true, true, true);
+			  });
+			  
+			// perform our first geocode
+			var address = document.getElementById('address').value;
+			geocodeAddress(geocoder, address, true, true, true);
+				
+		}
+
+		// Convert from readable address to latlng. Optionally update the UI with last 3 parms
+		function geocodeAddress(geocoder, address, updateForm, setCenter, needsMarker) {
+		  geocoder.geocode({'address': address}, function(results, status) {
+			if (status === google.maps.GeocoderStatus.OK) {
+				if(setCenter)
+					map.setCenter(results[0].geometry.location);
+				
+				// grab latitude and longitude from results
+				var longitude = results[0].geometry.location.lng();
+				var latitude = results[0].geometry.location.lat();
+
+				// update the form fields
+				if(updateForm){
+					$("#lat").val(latitude);
+					$("#lon").val(longitude);
+				}
+			
+				// create a marker and place it on the map 
+				if(needsMarker == true)
+					addMarker(results[0].geometry.location);
+			} else {
+				console.log('Geocode was not successful for the following reason: ' + status);
+			}
+		  });
+		}
+		
+		// Google maps doesn't have a clear markers features... so I kept a reference to each marker I placed and now I disable them manually
+		function clearMarkers()
+		{
+			for (var i = 0; i < markers.length; i++) {
+				markers[i].setMap(null);
+			}
+			
+			markers = [];
+		}
+		
+		// Google maps doesn't have a clear circles features... so I kept a reference to each circle I placed and now I disable them manually
+		function clearCircles()
+		{
+			for (var i = 0; i < circles.length; i++) {
+				circles[i].setMap(null);
+			}
+			
+			circles = [];
+		}
+		
+		// Add a single marker to the map
+		function addMarker(location)
+		{
+			var marker = new google.maps.Marker({
+				position: location,
+				map: map
+			});
+			
+			// store the marker in an array so we can hide or remove it later
+			markers.push(marker);
+		}
+		
+		// Draw a circle on the map using googles api
+		function addCircle(location, mag)
+		{
+			// yellow: #FFFF00
+			// red: #FF0000
+			// orange: #FF8000
+			
+			var circle = new google.maps.Circle({
+			  strokeColor: '#FF0000',
+			  strokeOpacity: 0.8,
+			  strokeWeight: 2,
+			  //fillColor: '#FF0000',
+			  fillOpacity: 0,
+			  map: map,
+			  center: location,
+			  radius: (10)
+			})
+			
+			// keep a reference to the circle so we can clear all circles later
+			circles.push(circle);
+			
+			// we want a size 5 to be much larger than size 4, so maxRadius = scale*mag^4
+			var maxRadius = 100 * mag * mag * mag * mag;
+			drawQuakeRecursive(circle, maxRadius)
+		}
+		
+		function drawQuakeRecursive(circle, maxRadius)
+		{
+			var curRadius = circle.getRadius();
+		
+			// ratio is used for scaling the circle when the user is zoome out
+			var ratio = (8/map.zoom);	// the default map zoom is 8. If the player zooms ratio increases
+			
+			// keep drawing and animation until the quake is over
+			if(curRadius > maxRadius*ratio)
+			{
+				circle.setMap(null)
+				var index = circles.indexOf(circle);
+				circles.splice(index,1);
+			}
+			else
+			{
+				circle.setRadius(curRadius + 3000*ratio* (animSpeed/3))
+			
+				setTimeout(
+					function(){
+						drawQuakeRecursive(circle, maxRadius);
+					}
+					,100
+				);
+			}
+		}
+		
+		// ---------------------------------------------
+		// --------------- END MAP STUFF ---------------
+		// ---------------------------------------------
+		
+		// -------------------------------------------
+		// --------------- QUAKE STUFF ---------------
+		// -------------------------------------------
+		
+		function startQuakes()
+		{
+			// make sure we have a starting point
+			if($("#lat").val() == "")
+			{
+				alert("Please enter a starting city and press 'Geocode'");
+				return;
+			}
+				
+			// clear the map of all previous markers
+			clearMarkers();
+			clearCircles();
+			
+			// stop all timeout functions
+			clearTimeouts();
+			
+			// get our timestamps
+			startDate = document.getElementById('startDate').value;
+			endDate = document.getElementById('endDate').value;
+				
+			// calculate how many milleseconds passed in our timespan
+			var sDate = new Date(startDate);
+			var eDate = new Date(endDate);
+			var timeElapsed = eDate.getTime() - sDate.getTime();
+			
+			// calculate how many hours passed in our timespan
+			var iterations = timeElapsed / 3600000;
+			
+			// the frequency in milleseconds of our database queries 
+			// animSpeed is our slider value. Default = 3
+			// if animSpeed == 5 then callDelay = 9/25*500 = 180 ms
+			// if animSpeed == 1 then callDelay = 9/1*500  = 4.5 s
+			var callDelay = 500 * (9/(animSpeed * animSpeed));
+			
+			// counter is the number of hours we have walked through
+			counter = 0;
+			
+			// step through each hour in our timespan
+			for(i = 0; i < iterations; i++)
+			{
+				// to increase speed of playback make callDelay smaller
+				var timeout = window.setTimeout(function(){
+					progressOneHour(sDate);
+				}, callDelay * i);	
+				
+				timeouts.push(timeout);
+			}			
+		}
+		
+		function progressOneHour(sDate)
+		{
+			counter ++;
+		
+			// our starting millescond # is the initial date + the amount of hours we have walked thru * milleseconds in an hour
+			startMS = sDate.getTime() + counter*3600000;
+			endMS = startMS + 3600000;
+			
+			// the start date of our query
+			var sd = new Date(parseInt(startMS));
+			var startString = "" + sd.getFullYear() + "-";
+			startString += (sd.getMonth() + 1) + "-";
+			startString += (sd.getDate() + 1)+ "T";
+			startString += sd.getHours() + ":00:00";
+			
+			// the end date of our query, (start + 1 hour)
+			var ed = new Date(endMS);
+			var endString = "" + ed.getFullYear() + "-";
+			endString += (ed.getMonth() +1) + "-";
+			endString += (ed.getDate() + 1) + "T";
+			endString += ed.getHours() + ":00:00";
+
+			$("#currentTime").html(startString);
+			requestQuakes(startString,endString);	
+		}
+		
+		function requestQuakes(startDate, endDate, magnitude)
+		{
+			//console.log("Find quakes between ", startDate, "and", endDate);
+			var quakes = [];
+			
+			var parms = {
+				"format":"geojson",
+				"starttime": startDate,
+				"endtime": endDate
+			};
+			
+			$.get("http://earthquake.usgs.gov/fdsnws/event/1/query", parms, gotData);
+		}
+		
+		function gotData(dt)
+		{
+			$.each(dt.features, function(key, val){
+				var lat = val.geometry.coordinates[1];
+				var lon = val.geometry.coordinates[0];
+				var place = val.properties.place
+				var mag = val.properties.mag;
+				
+				handleQuake(lat,lon,place,mag);
+			});
+		}
+		
+		function handleQuake(lat, lon, place, mag)
+		{			
+			var quakePoint = new google.maps.LatLng(lat,lon);
+			var startPoint = new google.maps.LatLng($("#lat").val(),$("#lon").val());
+						
+			var distance = (google.maps.geometry.spherical.computeDistanceBetween(quakePoint,startPoint)/1000).toFixed(0);
+			var radius = $("#radius").val();
+			var radiusInt = parseInt(radius);
+			
+			if(distance < radiusInt)
+			{
+				// create a marker if we should be showing markers and quake magnitude is high enough
+				if($("#showMarkers").prop('checked') && mag > $("#markersAbove").val())
+				{
+					addMarker(quakePoint);
+				}
+				
+				// create a circle if we we should be showing circles and quake magnitude is high enough 
+				if($("#showShapes").prop('checked') && mag > $("#shapesAbove").val())
+				{
+					addCircle(quakePoint, mag);
+				}
+			}
+			else
+			{
+				// ignoring quake because it is outside of our range!
+				console.log(place,"quake ignored because it is outside of our range");
+			}
+			
+		}		
+		
+		// -----------------------------------------------
+		// --------------- END QUAKE STUFF ---------------
+		// -----------------------------------------------
+		
+		// --------------------------------------------------
+		// --------------- TIMING and CONTROL ---------------
+		// --------------------------------------------------
+		
+		function initialize()
+		{
+			$("#getQuakes").click(function()
+			{	
+				startQuakes();
+			});
+			  
+			$("#speed").change(function(){
+				animSpeed = $("#speed").val();
+			});  
+			
+			console.log("Everything is ready to go");
+			
+		}
+		
+		// cancel all timers
+		function clearTimeouts()
+		{
+			for(var i = 0; i < timeouts.length; i++)
+			{
+				clearTimeout(timeouts[i]);
+			}
+			
+			timeouts = [];
+		}
+		
+		$(document).ready(initialize);
+		// ------------------------------------------------------
+		// --------------- END TIMING and CONTROL ---------------
+		// ------------------------------------------------------
+		
+		
+    </script>
+    
+	<script 
+		// set api reference and callback to initMap()
+		src="https://maps.googleapis.com/maps/api/js?v=3.exp&key=AIzaSyDn_SlQktsB8KIWI2750jskP_DbnOa0llU&signed_in=true&libraries=geometry&callback=initMap" async defer>
+	</script>
+  </body>
+</html>
